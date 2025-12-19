@@ -14,7 +14,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenSettings }) => {
         </div>
         <div>
           <h1 className="text-xl font-bold text-slate-800 tracking-tight">TRỢ LÝ SINH ĐỀ TIẾNG ANH</h1>
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-widest">Phiên bản chuyên nghiệp</p>
+          <p className="text-xs font-medium text-slate-500 tracking-widest">Phát triển bởi Trần Hoài Thanh</p>
         </div>
       </div>
 
