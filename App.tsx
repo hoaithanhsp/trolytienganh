@@ -116,8 +116,15 @@ const App: React.FC = () => {
         );
 
         if (section.text) {
-          section.text.split('\n').forEach(line => {
-            children.push(new Paragraph({ children: [new TextRun({ text: line, font: fontName, size: 24 })], spacing: { after: 100 } }));
+          // Identify if text is a reading passage or just a short instruction
+          // Split by double newline to separate paragraphs
+          const paragraphs = section.text.split(/\n\s*\n/);
+          paragraphs.forEach(para => {
+            children.push(new Paragraph({
+              children: [new TextRun({ text: para.trim(), font: fontName, size: 24 })],
+              spacing: { after: 200 }, // More spacing between paragraphs
+              alignment: AlignmentType.JUSTIFIED
+            }));
           });
         }
 
@@ -129,7 +136,7 @@ const App: React.FC = () => {
                 new TextRun({ text: q.text, font: fontName, size: 24 }),
                 new TextRun({ text: q.points ? ` (${q.points} pts)` : "", italics: true, font: fontName, size: 20 }),
               ],
-              spacing: { before: 100, after: 50 },
+              spacing: { before: 150, after: 100 }, // Increased spacing for clear question separation
             })
           );
 
