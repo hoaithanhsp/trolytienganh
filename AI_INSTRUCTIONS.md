@@ -24,6 +24,7 @@ Tài liệu này ghi lại các quy tắc đã được thống nhất để AI 
     - Thứ tự hiển thị: `gemini-3-flash-preview` (Default), `gemini-3-pro-preview`, `gemini-2.5-flash`, `gemini-2.5-pro`.
   - Nút **Settings (API Key)** kèm dòng chữ màu đỏ "Lấy API key để sử dụng app" phải luôn hiển thị trên Header để người dùng dễ dàng thay đổi key khi hết quota. 
   - Khi chưa có key, hiển thị Modal bắt buộc nhập.
+  - Việc nhập key ban đầu trước khi dùng app, hướng dẫn người dùng vào https://aistudio.google.com/api-keys để lấy key API
 
 ## 3. Quản lý Trạng thái & Lỗi (State Management)
 - **Hiển thị lỗi**:

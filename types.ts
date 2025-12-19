@@ -1,55 +1,69 @@
 
-export interface ExamConfig {
-  level: string; // 'Primary' | 'Middle School' | 'High School'
-  gradeLevel: string;
-  examType: string;
-  topic: string;
-  trendingTopic: string;
-  matrixContent: string;
-  specificationContent: string;
-  structureContent: string; // New field for target exam structure
-  referenceContent?: string; 
-}
-
-export interface QuestionPart {
-  label: string; 
-  content: string;
-  points?: string;
+export enum Step {
+  UPLOAD = 'UPLOAD',
+  ANALYZING = 'ANALYZING',
+  OUTLINE = 'OUTLINE',
+  CONFIG = 'CONFIG',
+  CONFIRMING = 'CONFIRMING',
+  GENERATING = 'GENERATING',
+  RESULTS = 'RESULTS'
 }
 
 export interface Question {
-  id: string; 
-  text: string;
-  points: number;
-  parts?: QuestionPart[];
-  level?: string; 
+  id: number;
+  type: string;
+  questionText: string;
+  options: {
+    A: string;
+    B: string;
+    C: string;
+    D: string;
+  };
+  correctAnswer: 'A' | 'B' | 'C' | 'D';
+  explanation?: string;
 }
 
-export interface ExamSection {
-  section: string; 
-  text?: string;
-  source?: string;
+export interface Exam {
+  id: string;
+  code: string;
+  title: string;
+  timeMinutes: number;
+  units: string[];
+  topics: string[];
   questions: Question[];
+  essayPrompt?: string;
+  difficultyStats: {
+    recognition: number;
+    understanding: number;
+    application: number;
+    highApplication: number;
+  };
 }
 
-export interface AnswerKey {
-  questionId: string;
-  answer: string;
-  pointsDetail: string;
+export interface AnalysisResult {
+  units: string[];
+  topics: string[];
+  totalQuestions: number;
+  timeLimit: number;
+  ratios: {
+    multipleChoice: number;
+    essay: number;
+  };
 }
 
-export interface ExamData {
-  examTitle: string;
-  duration: string;
-  content: ExamSection[];
-  answers: AnswerKey[];
-  matrixMapping?: string[];
+export interface ExamOutline {
+  sections: {
+    title: string;
+    questionCount: number;
+    points: number;
+    description: string;
+  }[];
+  matrixAnalysis: string;
 }
 
-export enum AppView {
-  INPUT = 'INPUT',
-  LOADING = 'LOADING',
-  RESULT = 'RESULT',
+export interface GeneratorConfig {
+  count: number;
+  codes: string[];
+  difficulty: 'original' | 'easier' | 'harder';
+  specialRequirements?: string;
 }
-
-export type ProgressCallback = (message: string) => void;

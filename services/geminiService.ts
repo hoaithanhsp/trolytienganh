@@ -1,232 +1,190 @@
 
-import { GoogleGenAI, Type, GenerateContentParameters } from "@google/genai";
-import { ExamConfig, ExamData, ProgressCallback } from "../types";
+import { GoogleGenAI } from "@google/genai";
+import { AnalysisResult, Exam, GeneratorConfig, Question, ExamOutline } from "../types";
 
-export const AVAILABLE_MODELS = [
-  { id: "gemini-3-flash-preview", name: "Gemini 3 Flash (Fastest)" },
-  { id: "gemini-3-pro-preview", name: "Gemini 3 Pro (High Quality)" },
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
-  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" }
+
+const DEFAULT_MODELS = [
+  'gemini-3-flash-preview',
+  'gemini-3-pro-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro'
 ];
 
-const FALLBACK_ORDER = [
-  "gemini-3-flash-preview",
-  "gemini-3-pro-preview",
-  "gemini-2.5-flash",
-  "gemini-2.5-pro"
-];
+const getApiKey = () => {
+  return localStorage.getItem('GEMINI_API_KEY') || '';
+};
 
-const KB_HIGH_GRADE_10 = `
-- Cấp học: THPT (Lớp 10) - Chuẩn GDPT 2018.
-- Cấu trúc đề 2024-2025 (Tham khảo mẫu):
-  + PHẦN TRẮC NGHIỆM (I): 
-    * Reading Comprehension (5 câu).
-    * Phonetics: Stress & Pronunciation (4 câu).
-    * Language Focus: MCQs Grammar/Vocab (7-10 câu).
-    * Vocabulary: Closest/Opposite meaning (2-4 câu).
-    * Sentence Arrangement: Sắp xếp đoạn văn/thư (2 câu).
-  + PHẦN TỰ LUẬN (II):
-    * Word Form: Supply correct form of word (3 câu).
-    * Verb Form: Supply correct form of verb (3 câu).
-    * Rewrite: Sentence transformation (Passive, Relative clauses, Conditionals, Reported speech) (4 câu).
-- Tỉ lệ: Nhận biết (40%), Thông hiểu (30%), Vận dụng (20%), Vận dụng cao (10%).
-`;
+const getGenAI = () => {
+  const key = getApiKey();
+  if (!key) throw new Error("Vui lòng nhập API Key trong phần Cài đặt (Settings).");
+  return new GoogleGenAI({ apiKey: key });
+};
 
-const TIMEOUT_MS = 60000;
+export interface CategorizedFiles {
+  matrix: { name: string, content: string };
+  specification: { name: string, content: string };
+  sampleExam: { name: string, content: string };
+}
 
-async function callWithFallback(
-  params: Omit<GenerateContentParameters, 'model'>,
-  apiKey: string,
-  preferredModel: string = "gemini-3-flash-preview",
-  onProgress?: ProgressCallback
-): Promise<string> {
-  // Construct the trial order: Preferred Model -> Then the rest of FALLBACK_ORDER
-  const trialModels = [
-    preferredModel,
-    ...FALLBACK_ORDER.filter(m => m !== preferredModel)
-  ];
+// Hàm hỗ trợ bóc tách JSON an toàn từ phản hồi của AI
+const parseJSONResponse = (text: string) => {
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonString = jsonMatch ? jsonMatch[0] : text;
+    return JSON.parse(jsonString);
+  } catch (e) {
+    console.error("Lỗi parse JSON từ AI:", text);
+    throw new Error("Không thể đọc được dữ liệu định dạng JSON từ AI.");
+  }
+};
 
+const generateWithFallback = async (prompt: string, jsonMode: boolean = true) => {
+  const ai = getGenAI();
   let lastError: any;
 
-  for (const model of trialModels) {
+  // Determine model order based on user preference
+  const preferredModel = localStorage.getItem('GEMINI_MODEL');
+  let models = [...DEFAULT_MODELS];
+  if (preferredModel && models.includes(preferredModel)) {
+    models = [preferredModel, ...models.filter(m => m !== preferredModel)];
+  }
+
+  for (const model of models) {
     try {
       console.log(`Trying model: ${model}`);
-      if (onProgress && model !== preferredModel) {
-        onProgress(`Model ${model === preferredModel ? 'preferred' : 'previous'} timed out or failed. Switching to ${model}...`);
-      }
-
-      const ai = new GoogleGenAI({ apiKey });
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Timeout of ${TIMEOUT_MS}ms exceeded`)), TIMEOUT_MS);
+      const response = await ai.models.generateContent({
+        model: model,
+        contents: prompt,
+        config: jsonMode ? { responseMimeType: 'application/json' } : undefined
       });
-
-      const response = await Promise.race([
-        ai.models.generateContent({ ...params, model }),
-        timeoutPromise
-      ]) as any;
-
-      if (response.text) return response.text;
-      throw new Error("Empty response");
-    } catch (err: any) {
-      console.warn(`Model ${model} failed:`, err);
-      lastError = err;
+      return response;
+    } catch (error: any) {
+      console.warn(`Model ${model} failed:`, error);
+      lastError = error;
       // Continue to next model
     }
   }
 
-  // If all failed, throw the last error with its original message (e.g. 429...)
-  throw lastError || new Error("All AI models failed.");
-}
-
-export const generateExam = async (
-  config: ExamConfig,
-  apiKey: string,
-  model: string,
-  onProgress?: ProgressCallback
-): Promise<ExamData> => {
-  if (!apiKey) throw new Error("API Key is missing. Please enter it in Settings.");
-
-  const kb = config.level === 'High School' ? KB_HIGH_GRADE_10 : `Standard ${config.level} instructions.`;
-  const selectedModel = model || "gemini-3-flash-preview";
-
-  // STEP 1: STRUCTURAL ANALYSIS & BLUEPRINTING
-  onProgress?.("Step 1/2: Analyzing Matrix, Specification & Structure...");
-  const step1Prompt = `
-    Role: Senior English Assessment Specialist (Vietnamese Education System).
-    
-    INPUT DOCUMENTS:
-    1. **MATRIX (Ma trận)**: ${config.matrixContent || "Not provided"}
-    2. **SPECIFICATION (Đặc tả)**: ${config.specificationContent || "Not provided"}
-    3. **TARGET STRUCTURE (Đề mẫu/Cấu trúc)**: ${config.structureContent || "Not provided"}
-    4. **REFERENCE STYLE**: ${config.referenceContent || "Not provided"}
-    
-    TASK: Analyze these inputs to create a precise EXAM BLUEPRINT.
-    
-    ANALYSIS LOGIC:
-    1. **Format & Structure**: Use 'TARGET STRUCTURE' as the skeleton. The final exam MUST look exactly like this structure (sections, numbering style).
-    2. **Question Distribution**: Use 'MATRIX' to determine the number of questions, points per question, and cognitive levels (NB, TH, VD, VDC).
-    3. **Content Requirements**: Use 'SPECIFICATION' to determine WHAT to test in each question (e.g., specific grammar point, vocabulary topic).
-    4. **Style**: Use 'REFERENCE STYLE' for tone and difficulty.
-
-    OUTPUT: A structured detailed plan (Blueprint) that lists every section and question to be generated in Step 2.
-    Format:
-    - Section I: [Name]
-      - Question 1: [Type] - [Specific Content from Spec] - [Level from Matrix]
-      - ...
-    - Section II: ...
-    
-    IMPORTANT: Do not generate the full exam text yet. Just the blueprint.
-  `;
-
-  // Pass apiKey and selectedModel
-  const plan = await callWithFallback({ contents: step1Prompt }, apiKey, selectedModel, onProgress);
-
-  // STEP 2: HIGH-FIDELITY GENERATION
-  onProgress?.("Step 2/2: Generating Final Exam Paper...");
-  const step2Prompt = `
-    Role: Professional Examiner.
-    Task: Generate the FULL ENGLISH EXAM based on the BLUEPRINT from Step 1.
-    
-    BLUEPRINT:
-    ${plan}
-    
-    CONTEXT:
-    - Grade: ${config.level} - ${config.gradeLevel}
-    - Time: ${config.examType}
-    - Topic: ${config.trendingTopic}
-    
-    STRICT REQUIREMENTS:
-    1. **Adhere to Blueprint**: Follow the section order, question types, and cognitive levels exactly.
-    2. **Content**: Generate high-quality English questions.
-       - For Reading: Generate a text approx 200-250 words about "${config.trendingTopic}".
-       - For Writing: Ensure topics are relevant to Grade ${config.gradeLevel}.
-    3. **Formatting**:
-       - Headers in VIETNAMESE (e.g., "I. PHẦN TRẮC NGHIỆM", "II. PHẦN TỰ LUẬN").
-       - Numbering: "Question 1", "Question 2", etc.
-    4. **CLEAN OUTPUT**: 
-       - The 'text' field MUST contain ONLY the Reading Passage or specific student instructions. 
-       - DO NOT include internal notes, meta-commentary, "Context:", "Note:", or "Blueprint reasoning" in the 'text' field.
-       - Use \\n\\n for paragraph breaks in the 'text' field.
-    
-    JSON Output Schema:
-    {
-      "examTitle": "string (e.g. ĐỀ KIỂM TRA GIỮA KÌ 1)",
-      "duration": "string",
-      "content": [
-        {
-          "section": "string (e.g. I. PHẦN TRẮC NGHIỆM)",
-          "text": "string (Reading passage or instructions ONLY. Use \\n\\n for paragraphs. NO meta-notes.)",
-          "questions": [
-            { 
-              "id": "Question 1", 
-              "text": "Question text here...", 
-              "points": 0.2, 
-              "parts": [{"label": "A.", "content": "Option A"}, {"label": "B.", "content": "Option B"}] 
-            }
-          ]
-        }
-      ],
-      "answers": [{ "questionId": "Question 1", "answer": "A", "pointsDetail": "Nhận biết - 0.2" }]
-    }
-  `;
-
-  const finalResponse = await callWithFallback({
-    contents: step2Prompt,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          examTitle: { type: Type.STRING },
-          duration: { type: Type.STRING },
-          content: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                section: { type: Type.STRING },
-                text: { type: Type.STRING },
-                questions: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      id: { type: Type.STRING },
-                      text: { type: Type.STRING },
-                      points: { type: Type.NUMBER },
-                      parts: {
-                        type: Type.ARRAY,
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            label: { type: Type.STRING },
-                            content: { type: Type.STRING }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          answers: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                questionId: { type: Type.STRING },
-                answer: { type: Type.STRING },
-                pointsDetail: { type: Type.STRING }
-              }
-            }
-          }
-        },
-        required: ["examTitle", "duration", "content", "answers"]
-      }
-    }
-  }, apiKey, selectedModel, onProgress);
-
-  return JSON.parse(finalResponse) as ExamData;
+  // If we get here, all models failed
+  const errorMsg = lastError?.message || JSON.stringify(lastError);
+  // Extract specific API error codes if possible (e.g. 429)
+  if (errorMsg.includes('429')) {
+    throw new Error(`429 RESOURCE_EXHAUSTED: Hết quota. Vui lòng đổi API Key hoặc chờ.`);
+  }
+  throw new Error(`${errorMsg}`);
 };
+
+export const analyzeDocuments = async (files: CategorizedFiles): Promise<AnalysisResult> => {
+  const prompt = `
+    Bạn là một chuyên gia phân tích đề thi Tiếng Anh THPT. 
+    Hãy phân tích bộ tài liệu sau để trích xuất cấu trúc đề thi chính xác:
+
+    1. MA TRẬN: ${files.matrix.content}
+    2. ĐẶC TẢ: ${files.specification.content}
+    3. ĐỀ MẪU: ${files.sampleExam.content}
+
+    Nhiệm vụ: Trích xuất các Unit, chủ đề, tổng số câu, thời gian và tỷ lệ điểm.
+    Yêu cầu trả về DUY NHẤT định dạng JSON sau:
+    {
+      "units": ["Unit 1", "Unit 2", ...],
+      "topics": ["Chủ đề 1", "Chủ đề 2", ...],
+      "totalQuestions": 40,
+      "timeLimit": 50,
+      "ratios": { "multipleChoice": 70, "essay": 30 }
+    }
+  `;
+
+  try {
+    const response = await generateWithFallback(prompt, true);
+    return parseJSONResponse(response.text || '{}');
+  } catch (error: any) {
+    console.error("Error analyzing documents:", error);
+    throw error; // Rethrow to show error in UI
+  }
+};
+
+export const generateOutline = async (analysis: AnalysisResult): Promise<ExamOutline> => {
+  const prompt = `
+    Dựa trên thông tin: Units (${analysis.units.join(', ')}), Tổng câu (${analysis.totalQuestions}).
+    Hãy lập dàn ý chi tiết đề thi Tiếng Anh.
+    Trả về định dạng JSON:
+    {
+      "sections": [
+        { "title": "Phần 1: Phonetics", "questionCount": 4, "points": 1.0, "description": "Phát âm và Trọng âm" },
+        ...
+      ],
+      "matrixAnalysis": "Phân tích mức độ nhận thức bám sát ma trận."
+    }
+  `;
+
+  try {
+    const response = await generateWithFallback(prompt, true);
+    return parseJSONResponse(response.text || '{}');
+  } catch (error) {
+    console.error("Error generating outline:", error);
+    throw error;
+  }
+};
+
+export const generateExams = async (
+  analysis: AnalysisResult,
+  config: GeneratorConfig,
+  onProgress: (progress: number, message: string) => void
+): Promise<Exam[]> => {
+  const exams: Exam[] = [];
+
+  for (let i = 0; i < config.count; i++) {
+    const code = config.codes[i] || (101 + i).toString();
+    onProgress(((i + 0.1) / config.count) * 100, `Đang soạn thảo Đề ${code}...`);
+
+    const prompt = `
+      Hãy tạo một đề thi Tiếng Anh hoàn chỉnh bám sát cấu trúc sau:
+      - Mã đề: ${code}
+      - Các Unit: ${analysis.units.join(', ')}
+      - Độ khó: ${config.difficulty} (dựa trên mức độ đề mẫu đã phân tích)
+      - Tổng số câu: ${analysis.totalQuestions}
+      
+      Yêu cầu trả về định dạng JSON khớp chính xác với interface Exam:
+      {
+        "id": "tự_sinh",
+        "code": "${code}",
+        "title": "KIỂM TRA ĐỊNH KỲ MÔN TIẾNG ANH",
+        "timeMinutes": ${analysis.timeLimit},
+        "units": ${JSON.stringify(analysis.units)},
+        "topics": ${JSON.stringify(analysis.topics)},
+        "questions": [
+           { "id": 1, "type": "Loại câu", "questionText": "...", "options": {"A": "...", "B": "...", "C": "...", "D": "..."}, "correctAnswer": "A", "explanation": "..." }
+        ],
+        "essayPrompt": "Đề bài phần tự luận",
+        "difficultyStats": {
+          "recognition": 40,
+          "understanding": 30,
+          "application": 20,
+          "highApplication": 10
+        }
+      }
+      
+      Lưu ý quan trọng: difficultyStats phải luôn có đủ 4 trường: recognition, understanding, application, highApplication với tổng là 100.
+    `;
+
+    try {
+      const response = await generateWithFallback(prompt, true);
+
+      let examData = parseJSONResponse(response.text || '{}');
+
+      // Đảm bảo có ID và difficultyStats hợp lệ để tránh lỗi runtime
+      examData.id = Math.random().toString(36).substr(2, 9);
+      if (!examData.difficultyStats) {
+        examData.difficultyStats = { recognition: 40, understanding: 30, application: 20, highApplication: 10 };
+      }
+
+      exams.push(examData);
+      onProgress(((i + 1) / config.count) * 100, `Hoàn thành Đề ${code}`);
+    } catch (error) {
+      console.error(`Error generating exam ${code}:`, error);
+      throw error; // Rethrow to stop and show error
+    }
+  }
+  return exams;
+};
+
