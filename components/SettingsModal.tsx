@@ -57,10 +57,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
                             />
                             <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         </div>
-                        <p className="text-xs text-slate-500 flex items-center gap-1">
-                            <Info className="w-3 h-3" />
-                            Key is stored locally in your browser.
-                        </p>
+                        <div className="flex items-center justify-between">
+                            <p className="text-xs text-slate-500 flex items-center gap-1">
+                                <Info className="w-3 h-3" />
+                                Key is stored locally in your browser.
+                            </p>
+                            <a
+                                href="https://aistudio.google.com/api-keys"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs text-blue-600 font-semibold hover:underline flex items-center gap-1"
+                            >
+                                Get API Key here &rarr;
+                            </a>
+                        </div>
                     </div>
 
                     {/* Model Selection Section */}
@@ -74,8 +84,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
                                     key={m.id}
                                     onClick={() => setModel(m.id)}
                                     className={`cursor-pointer p-3 rounded-xl border transition-all flex items-center justify-between ${model === m.id
-                                            ? 'bg-blue-50 border-blue-500 shadow-sm'
-                                            : 'bg-white border-slate-200 hover:border-blue-300'
+                                        ? 'bg-blue-50 border-blue-500 shadow-sm'
+                                        : 'bg-white border-slate-200 hover:border-blue-300'
                                         }`}
                                 >
                                     <div className="flex flex-col">
@@ -100,8 +110,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, apiKey, 
                         onClick={handleSave}
                         disabled={!tempKey}
                         className={`px-6 py-2.5 rounded-xl font-bold text-white shadow-lg transition-all ${tempKey
-                                ? 'bg-blue-600 hover:bg-blue-700 hover:-translate-y-0.5'
-                                : 'bg-slate-300 cursor-not-allowed'
+                            ? 'bg-blue-600 hover:bg-blue-700 hover:-translate-y-0.5'
+                            : 'bg-slate-300 cursor-not-allowed'
                             }`}
                     >
                         Save Configuration
