@@ -32,10 +32,13 @@ const KB_HIGH_GRADE_10 = `
 - Tỉ lệ: Nhận biết (40%), Thông hiểu (30%), Vận dụng (20%), Vận dụng cao (10%).
 `;
 
+const TIMEOUT_MS = 60000;
+
 async function callWithFallback(
   params: Omit<GenerateContentParameters, 'model'>,
   apiKey: string,
-  preferredModel: string = "gemini-3-flash-preview"
+  preferredModel: string = "gemini-3-flash-preview",
+  onProgress?: ProgressCallback
 ): Promise<string> {
   // Construct the trial order: Preferred Model -> Then the rest of FALLBACK_ORDER
   const trialModels = [
@@ -48,8 +51,21 @@ async function callWithFallback(
   for (const model of trialModels) {
     try {
       console.log(`Trying model: ${model}`);
+      if (onProgress && model !== preferredModel) {
+        onProgress(`Model ${model === preferredModel ? 'preferred' : 'previous'} timed out or failed. Switching to ${model}...`);
+      }
+
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({ ...params, model });
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Timeout of ${TIMEOUT_MS}ms exceeded`)), TIMEOUT_MS);
+      });
+
+      const response = await Promise.race([
+        ai.models.generateContent({ ...params, model }),
+        timeoutPromise
+      ]) as any;
+
       if (response.text) return response.text;
       throw new Error("Empty response");
     } catch (err: any) {
@@ -104,7 +120,7 @@ export const generateExam = async (
   `;
 
   // Pass apiKey and selectedModel
-  const plan = await callWithFallback({ contents: step1Prompt }, apiKey, selectedModel);
+  const plan = await callWithFallback({ contents: step1Prompt }, apiKey, selectedModel, onProgress);
 
   // STEP 2: HIGH-FIDELITY GENERATION
   onProgress?.("Step 2/2: Generating Final Exam Paper...");
@@ -210,7 +226,7 @@ export const generateExam = async (
         required: ["examTitle", "duration", "content", "answers"]
       }
     }
-  }, apiKey, selectedModel);
+  }, apiKey, selectedModel, onProgress);
 
   return JSON.parse(finalResponse) as ExamData;
 };
