@@ -128,6 +128,10 @@ export const generateExam = async (
     3. **Formatting**:
        - Headers in VIETNAMESE (e.g., "I. PHẦN TRẮC NGHIỆM", "II. PHẦN TỰ LUẬN").
        - Numbering: "Question 1", "Question 2", etc.
+    4. **CLEAN OUTPUT**: 
+       - The 'text' field MUST contain ONLY the Reading Passage or specific student instructions. 
+       - DO NOT include internal notes, meta-commentary, "Context:", "Note:", or "Blueprint reasoning" in the 'text' field.
+       - Use \\n\\n for paragraph breaks in the 'text' field.
     
     JSON Output Schema:
     {
@@ -136,7 +140,7 @@ export const generateExam = async (
       "content": [
         {
           "section": "string (e.g. I. PHẦN TRẮC NGHIỆM)",
-          "text": "string (Reading passage or instructions, optional)",
+          "text": "string (Reading passage or instructions ONLY. Use \\n\\n for paragraphs. NO meta-notes.)",
           "questions": [
             { 
               "id": "Question 1", 
